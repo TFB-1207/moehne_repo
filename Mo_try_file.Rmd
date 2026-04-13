@@ -5,3 +5,355 @@ date: "2026-04-09"
 output: html_document
 ---
 
+```{r, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(patchwork)
+library(ggplot2)
+library(grid)
+library(cowplot)
+library(purrr)
+```
+
+# Load data
+from now on we call this project mw (Moehne, Wester). We avoid mo as to not get into trouble with future Moehne projects
+```{r, echo = FALSE}
+# multiple runs from NED-flow by Kevin. So from oldest to most recent. We include these three because april contains microbes, june is used in thesis and september is the most recent one. 
+
+mw_2504 <- read_tsv('data/beaver_250424_raw_taxonomy_data.tsv')
+mw_2506 <- read_tsv('data/250627_taxon_out.tsv')
+mw_2509 <- read_tsv('data/250910_taxa_out.tsv')
+
+wcvp_names <- read.table("wcvp/wcvp_names.csv", sep="|", header=TRUE, quote = "", fill=TRUE, encoding = "UTF-8")
+wcvp_dist <- read.table("wcvp/wcvp_distribution.csv", sep="|", header=TRUE, quote = "", fill=TRUE, encoding = "UTF-8")
+
+```
+
+# Add additional data
+this data does not have db yet, so we assign kingdom group to see who's who.
+Also we add layer names and ages per layer. 
+
+```{r, echo = FALSE}
+#--------------------------------- kingdom groups ------------------------------------------------
+mw_phylum_groups <- tribble(
+  ~phylum_name,           ~kingdom_group,
+  # plants
+  "Streptophyta",         "plants",
+  "Chlorophyta",          "plants",
+  "Rhodophyta",           "plants",
+  
+  # animals
+  "Chordata",             "animals",
+  "Arthropoda",           "animals",
+  "Annelida",             "animals",
+  "Mollusca",             "animals",
+  "Cnidaria",             "animals",
+  "Porifera",             "animals",
+  "Nematoda",             "animals",
+  "Rotifera",             "animals",
+  
+  # microbes (bacteria)
+  "Acidobacteriota",      "microbes",
+  "Actinomycetota",       "microbes",
+  "Aquificota",           "microbes",
+  "Armatimonadota",       "microbes",
+  "Bacillota",            "microbes",
+  "Bacteroidota",         "microbes",
+  "Balneolota",           "microbes",
+  "Bdellovibrionota",     "microbes",
+  "Campylobacterota",     "microbes",
+  "Chlamydiota",          "microbes",
+  "Chlorobiota",          "microbes",
+  "Chloroflexota",        "microbes",
+  "Cyanobacteriota",      "microbes",
+  "Deferribacterota",     "microbes",
+  "Deinococcota",         "microbes",
+  "Fibrobacterota",       "microbes",
+  "Fusobacteriota",       "microbes",
+  "Gemmatimonadota",      "microbes",
+  "Ignavibacteriota",     "microbes",
+  "Kiritimatiellota",     "microbes",
+  "Lentisphaerota",       "microbes",
+  "Mycoplasmatota",       "microbes",
+  "Myxococcota",          "microbes",
+  "Nitrospinota",         "microbes",
+  "Nitrospirota",         "microbes",
+  "Planctomycetota",      "microbes",
+  "Pseudomonadota",       "microbes",
+  "Rhodothermota",        "microbes",
+  "Spirochaetota",        "microbes",
+  "Synergistota",         "microbes",
+  "Thermodesulfobacteriota", "microbes",
+  "Thermomicrobiota",     "microbes",
+  "Thermotogota",         "microbes",
+  "Verrucomicrobiota",    "microbes",
+  "Calditrichota",        "microbes",
+  "Chrysiogenota",        "microbes",
+  "Vulcanimicrobiota",    "microbes",
+  "Elusimicrobiota",      "microbes",
+  "Atribacterota",        "microbes",
+  
+  # fungi (only Oomycota - though technically fungus-like protists)
+  "Oomycota",             "fungi",
+  
+  # protozoa
+  "Ciliophora",           "protozoa",
+  "Euglenozoa",           "protozoa",
+  "Heterolobosea",        "protozoa",
+  "Evosea",               "protozoa",
+  
+  # other (remaining protists/algae)
+  "Bacillariophyta",      "other",
+  NA,                     NA
+)
+
+# ------------------------------------------------------- ages -----------------------------------------------------
+mw_ages <- read.csv("data/age_table.csv", header = TRUE, sep = ",") %>%
+  rename(sample, library = sample)
+
+#--------------------------------------------------- native vs non-native -----------------------------------------------
+# Note this Only works for Plants. Other phyla will get a value, but this is irrelevant
+mw_target_area <- c(
+"GER" # Germany
+)
+#  look up which genera are native from WCVP
+# exclude anything non-native form df, can be used to give indication of native
+mw_wcvp_native <- wcvp_dist %>%
+  filter(area_code_l3 %in% mw_target_area,
+         introduced == 0) %>%
+  right_join(
+    wcvp_names %>% select(plant_name_id, genus),
+    by = "plant_name_id"
+  ) %>%
+  select(genus, everything()) %>%
+  filter(!is.na(genus),
+         !is.na(area_code_l3)) %>%
+  distinct(genus, region, area, area_code_l3)
+
+# this just gives a more detailed overview which genus is native to which country
+mw_wcvp_native_ov <- mw_wcvp_native %>%
+  mutate(native = TRUE) %>%
+  pivot_wider(
+    names_from = area_code_l3,
+    values_from = native,
+    values_fill = FALSE,
+    names_prefix = "native_"
+  ) %>%
+  mutate(native_any = TRUE)
+
+
+#------------------------------ add all to df's -----------------------------------------
+
+datasets <- list(mw_2504, mw_2506, mw_2509)
+names(datasets) <- c("mw_2504", "mw_2506", "mw_2509")
+
+datasets <- lapply(datasets, function(df) {
+  df %>%
+    left_join(mw_phylum_groups, by = "phylum_name") %>%
+      mutate(
+    native_plant = case_when(genus_name %in% mw_wcvp_native$genus ~ "1",
+                       TRUE ~ "0")
+  ) %>%
+    filter(library %in% c("Lib.J.1036", 
+                          "Lib.J.1037", 
+                          "Lib.J.1038", 
+                          "Lib.J.1039", 
+                          "Lib.J.1040", 
+                          "Lib.J.1041", 
+                          "Lib.J.1042", 
+                          "Lib.J.1043", 
+                          "Lib.J.1044", 
+                          "Lib.J.1045", 
+                          "Lib.J.1046", 
+                          "Lib.J.1047")) %>%
+    mutate(location_layer = case_when( # here we add location for each library
+    str_detect(library, "Lib.J.1036")  ~ "ML3"  ,
+    str_detect(library, "Lib.J.1037")  ~ "ML2"  ,
+    str_detect(library, "Lib.J.1038")  ~ "ML1"  ,
+    str_detect(library, "Lib.J.1039")  ~ "W2L4" ,
+    str_detect(library, "Lib.J.1040")  ~ "W2L4" ,
+    str_detect(library, "Lib.J.1041")  ~ "W2L3" ,
+    str_detect(library, "Lib.J.1042")  ~ "W2L3" ,
+    str_detect(library, "Lib.J.1043")  ~ "W2L3" ,
+    str_detect(library, "Lib.J.1044")  ~ "W1L4" ,
+    str_detect(library, "Lib.J.1045")  ~ "W1L4" ,
+    str_detect(library, "Lib.J.1046")  ~ "W1L3_2",
+    str_detect(library, "Lib.J.1047")  ~ "W1L3_1"  
+  )) %>%
+    left_join(mw_ages, by = "library") %>%
+    select(library, location_layer, age, se_age, everything())
+    
+})
+
+# unpack for normal usage, rename with _raw
+mw_2504_raw <- datasets[["mw_2504"]]
+mw_2506_raw <- datasets[["mw_2506"]]
+mw_2509_raw <- datasets[["mw_2509"]]
+
+```
+# simplify df's
+## define columns to keep
+```{r, echo = FALSE}
+# Define relevant columns for a genus df
+mw_columns_df_fm_gs <- c(
+  "library",
+  "location_layer",
+  "age",
+  "se_age",
+  "kingdom_group",
+  "phylum_name",
+  "order_name",
+  "family_name",
+  "genus_name",
+  "taxa_name", # taxa in this case refers to the reference genome which the read is mapped to, res is genus still
+  "genus_count_assembly",
+  "genus_deam_count",
+  "sum_genus_count",
+  "median_read_length_genus",
+  "ancientness_genus",
+  "deam5p_frac_genus",
+  "deam5p_genus",
+  "ref_C_sum_5p_genus",
+  "deam3p_frac_genus",
+  "deam3p_genus",
+  "ref_C_sum_3p_genus",
+  "family_count_assembly",
+  "family_deam_count",
+  "sum_family_count",
+  "median_read_length_family",
+  "ancientness_family",
+  "deam5p_frac_family",
+  "deam5p_family",
+  "ref_C_sum_5p_family",
+  "deam3p_frac_family",
+  "deam3p_family",
+  "ref_C_sum_3p_family",
+  "native_plant"
+  )
+
+mw_columns_df_extra <- c(
+  "library",
+  "core",
+  "depth",
+  "age_ka",
+  "db",
+  "phylum_name",
+  "order_name",
+  "family_name",
+  "genus_name",
+  "taxa_name", # taxa in this case refers to the reference genome which the read is mapped to, res is genus still
+  "genus_count_assembly",
+  "sum_genus_count",
+  "genus_deam_count",
+  "median_read_length_genus",
+  "ancientness_genus",
+  "deam5p_frac_genus",
+  "deam5p_genus",
+  "ref_C_sum_5p_genus",
+  "deam3p_frac_genus",
+  "deam3p_genus",
+  "ref_C_sum_3p_genus",
+  "family_count_assembly",
+  "family_deam_count",
+  "sum_family_count",
+  "median_read_length_family",
+  "ancientness_family",
+  "deam5p_frac_family",
+  "deam5p_family",
+  "ref_C_sum_5p_family",
+  "deam3p_frac_family",
+  "deam3p_family",
+  "ref_C_sum_3p_family",
+  "sum_phylum_count",
+  "sum_order_count",
+  "depth_min",
+  "depth_max"
+  )
+
+#---------------------------------- assign location ------------------------------------------------------------
+mw_site_assign <- tribble(
+  ~library, ~site,
+  "Lib.J.1038", "M",
+  "Lib.J.1037", "M",
+  "Lib.J.1036", "M",
+  "Lib.J.1039", "W2",
+  "Lib.J.1040", "W2",
+  "Lib.J.1041", "W2",
+  "Lib.J.1042", "W2",
+  "Lib.J.1043", "W2",
+  "Lib.J.1044", "W1",  
+  "Lib.J.1045", "W1",
+  "Lib.J.1046", "W1",
+  "Lib.J.1047", "W1"
+)
+
+
+
+
+#------------------ appply to df's ----------------------------------------------------------------------------
+datasets2 <- list(mw_2504_raw, mw_2506_raw, mw_2509_raw)
+names(datasets2) <- c("mw_2504_raw", "mw_2506_raw", "mw_2509_raw")
+
+datasets2 <- lapply(datasets2, function(df2) {
+  df2 %>%
+  select(all_of(mw_columns_df_fm_gs)) %>% # use select to only select columns relevant for df_gs 
+  left_join(mw_site_assign, by = "library") %>%
+  group_by(library, genus_name) %>%
+  mutate(
+    deam5p_frac_genus_family = (deam5p_genus + deam5p_family) / (ref_C_sum_5p_genus + ref_C_sum_5p_family),
+    deam3p_frac_genus_family = (deam3p_genus + deam3p_family) / (ref_C_sum_3p_genus + ref_C_sum_3p_family)) %>%
+    filter(!genus_count_assembly < 50,
+           !deam5p_frac_genus < 0.001)
+})
+
+# mw = Moehne Wester, then date, df = datafram, fm = family, gs = genus, cl = clean (filter for genus count > 100 and sum genus count > 100). all is just with all data
+
+mw_2504_df_fm_gs_cl <- datasets2[["mw_2504_raw"]]
+mw_2506_df_fm_gs_cl <- datasets2[["mw_2506_raw"]]
+mw_2509_df_fm_gs_cl <- datasets2[["mw_2509_raw"]]
+```
+
+
+# median readlength vs deamination rate
+try without collapsing to genus level first (include all assemblies)
+```{r, echo = FALSE}
+mw_colours <- c(
+  "Lib.J.1038" = "#F07056",
+  "Lib.J.1037" = "#E03612",
+  "Lib.J.1036" = "#9E1C02",
+  "Lib.J.1039" = "#74B4E8",
+  "Lib.J.1040" = "#306FE3",
+  "Lib.J.1041" = "#252FCF",
+  "Lib.J.1042" = "#2E3494",
+  "Lib.J.1043" = "#000373",
+  "Lib.J.1044" = "#F781DF",  
+  "Lib.J.1045" = "#D433B4",
+  "Lib.J.1046" = "#8F0073",
+  "Lib.J.1047" = "#5C0049"
+)
+
+mw_2509_df_M <- mw_2509_df_fm_gs_cl %>%
+  filter(site == "M")
+
+mw_pres_plots_M <- ggplot(mw_2509_df_M, aes(x = deam5p_frac_genus, y = median_read_length_genus, fill = library)) +
+  geom_point(alpha = 1, size = 3, shape = 21, colour = "black") +
+  geom_smooth(colour = "red", alpha = 0.4, se = TRUE, level = 0.95, method = "lm", span = 0.9) +
+  scale_y_continuous(limits = c(30,80)) +
+  scale_x_continuous(limits = c(0, 0.4)) +
+  scale_colour_manual(values = mw_colours) +
+  scale_fill_manual(values = mw_colours) +
+  labs(
+    title = "Moehne: deamrate vs median readlength",
+    x = "deam5p_frac_genus",
+    y = "median_read_length_genus"
+    ) +
+  facet_wrap(~library, ncol = 3) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+mw_pres_plots_M
+
+
+ggsave("output/mw_deamr_readlength_M_clean.pdf", plot = mw_pres_plots_M, width = 12, height = 5, dpi = 300)
+
+
+```
