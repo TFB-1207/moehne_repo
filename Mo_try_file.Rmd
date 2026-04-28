@@ -140,6 +140,24 @@ mw_wcvp_native_ov <- mw_wcvp_native %>%
   ) %>%
   mutate(native_any = TRUE)
 
+#---------------------------------- assign location ------------------------------------------------------------
+mw_site_assign <- tribble(
+  ~library, ~site,
+  "Lib.J.1038", "M",
+  "Lib.J.1037", "M",
+  "Lib.J.1036", "M",
+  "Lib.J.1039", "W2",
+  "Lib.J.1040", "W2",
+  "Lib.J.1041", "W2",
+  "Lib.J.1042", "W2",
+  "Lib.J.1043", "W2",
+  "Lib.J.1044", "W1",  
+  "Lib.J.1045", "W1",
+  "Lib.J.1046", "W1",
+  "Lib.J.1047", "W1"
+)
+
+
 
 #------------------------------ add all to df's -----------------------------------------
 
@@ -179,6 +197,7 @@ datasets <- lapply(datasets, function(df) {
     str_detect(library, "Lib.J.1046")  ~ "W1L3_2",
     str_detect(library, "Lib.J.1047")  ~ "W1L3_1"  
   )) %>%
+    left_join(mw_site_assign, by = "library") %>%
     left_join(mw_ages, by = "library") %>%
     select(library, location_layer, age, se_age, everything())
     
@@ -197,6 +216,7 @@ mw_2509_raw <- datasets[["mw_2509"]]
 mw_columns_df_fm_gs <- c(
   "library",
   "location_layer",
+  "site",
   "age",
   "se_age",
   "kingdom_group",
@@ -269,34 +289,17 @@ mw_columns_df_extra <- c(
   "depth_max"
   )
 
-#---------------------------------- assign location ------------------------------------------------------------
-mw_site_assign <- tribble(
-  ~library, ~site,
-  "Lib.J.1038", "M",
-  "Lib.J.1037", "M",
-  "Lib.J.1036", "M",
-  "Lib.J.1039", "W2",
-  "Lib.J.1040", "W2",
-  "Lib.J.1041", "W2",
-  "Lib.J.1042", "W2",
-  "Lib.J.1043", "W2",
-  "Lib.J.1044", "W1",  
-  "Lib.J.1045", "W1",
-  "Lib.J.1046", "W1",
-  "Lib.J.1047", "W1"
-)
 
 
 
 
-#------------------ appply to df's ----------------------------------------------------------------------------
+#------------------ appply to df's ------------------------------------------------------------------
 datasets2 <- list(mw_2504_raw, mw_2506_raw, mw_2509_raw)
 names(datasets2) <- c("mw_2504_raw", "mw_2506_raw", "mw_2509_raw")
 
 datasets2 <- lapply(datasets2, function(df2) {
   df2 %>%
   select(all_of(mw_columns_df_fm_gs)) %>% # use select to only select columns relevant for df_gs 
-  left_join(mw_site_assign, by = "library") %>%
   group_by(library, genus_name) %>%
   mutate(
     deam5p_frac_genus_family = (deam5p_genus + deam5p_family) / (ref_C_sum_5p_genus + ref_C_sum_5p_family),
@@ -330,19 +333,64 @@ mw_colours <- c(
   "Lib.J.1046" = "#8F0073",
   "Lib.J.1047" = "#5C0049"
 )
+mw_2509_raw_gs <- mw_2509_raw %>%
+  filter(sum_genus_count > 1)
+# define df per library for plotting (i know i should loop this but wtf)
 
-mw_2509_df_M <- mw_2509_df_fm_gs_cl %>%
+mw_2509_df_M_cl <- mw_2509_df_fm_gs_cl %>%
   filter(site == "M")
+mw_2509_df_M_di <- mw_2509_raw_gs %>%
+  filter(site == "M")
+mw_2509_df_W1_cl <- mw_2509_df_fm_gs_cl %>%
+  filter(site == "W1")
+mw_2509_df_W1_di <- mw_2509_raw_gs %>%
+  filter(site == "W1")
+mw_2509_df_W2_cl <- mw_2509_df_fm_gs_cl %>%
+  filter(site == "W2")
+mw_2509_df_W2_di <- mw_2509_raw_gs %>%
+  filter(site == "W2")
+#------------- Want to add number of observations per library to the plot--------------------
+# clean one
 
-mw_pres_plots_M <- ggplot(mw_2509_df_M, aes(x = deam5p_frac_genus, y = median_read_length_genus, fill = library)) +
+# now n labels per fkn thing
+mw_n_labels_M_cl <- mw_2509_df_M_cl %>%
+  group_by(library) %>%
+  summarise(count = n()) %>%
+  mutate(label = paste0("N = ", count))
+mw_n_labels_M_di <- mw_2509_df_M_di %>%
+  group_by(library) %>%
+  summarise(count = n()) %>%
+  mutate(label = paste0("N = ", count))
+mw_n_labels_W1_cl <- mw_2509_df_W1_cl %>%
+  group_by(library) %>%
+  summarise(count = n()) %>%
+  mutate(label = paste0("N = ", count))
+mw_n_labels_W1_di <- mw_2509_df_W1_di %>%
+  group_by(library) %>%
+  summarise(count = n()) %>%
+  mutate(label = paste0("N = ", count))
+mw_n_labels_W2_cl <- mw_2509_df_W2_cl %>%
+  group_by(library) %>%
+  summarise(count = n()) %>%
+  mutate(label = paste0("N = ", count))
+mw_n_labels_W2_di <- mw_2509_df_W2_di %>%
+  group_by(library) %>%
+  summarise(count = n()) %>%
+  mutate(label = paste0("N = ", count))
+# ----------------------- Plooooooooooooooooot - ------------------------------
+
+mw_pres_plots_W2_cl <- ggplot(mw_2509_df_W2_cl, aes(x = deam5p_frac_genus, y = median_read_length_genus, fill = library)) +
   geom_point(alpha = 1, size = 3, shape = 21, colour = "black") +
   geom_smooth(colour = "red", alpha = 0.4, se = TRUE, level = 0.95, method = "lm", span = 0.9) +
+  geom_text(data = mw_n_labels_W2_cl, aes(label = label), 
+            x = 0.35, y = 75,  # adjust position as needed
+            inherit.aes = FALSE)+
   scale_y_continuous(limits = c(30,80)) +
   scale_x_continuous(limits = c(0, 0.4)) +
   scale_colour_manual(values = mw_colours) +
   scale_fill_manual(values = mw_colours) +
   labs(
-    title = "Moehne: deamrate vs median readlength",
+    title = "Wester 2: deamrate vs median readlength",
     x = "deam5p_frac_genus",
     y = "median_read_length_genus"
     ) +
@@ -350,10 +398,59 @@ mw_pres_plots_M <- ggplot(mw_2509_df_M, aes(x = deam5p_frac_genus, y = median_re
   theme_classic() +
   theme(legend.position = "none")
 
-mw_pres_plots_M
 
 
-ggsave("output/mw_deamr_readlength_M_clean.pdf", plot = mw_pres_plots_M, width = 12, height = 5, dpi = 300)
+mw_pres_plots_M_cl
+mw_pres_plots_W1_cl
+mw_pres_plots_W2_cl
+mw_pres_plots_M_di
+mw_pres_plots_W1_di
+mw_pres_plots_W2_di
 
 
+ggsave("output/mw_deamr_readlength_W2_clean.pdf", plot = mw_pres_plots_W2_cl, width = 12, height = 5, dpi = 300)
+
+
+```
+
+
+# --------------------- Plant and Fish lookup -------------------
+```{r, echo = FALSE}
+
+# ---------- FISH -----------------
+mw_df_fish <- mw_2506_raw %>%
+  filter(family_name %in% c("Cyprinidae", "Gobiidae", "Cichlidae", "Characidae", "Loricariidae", 
+                            "Balitoridae", "Serranidae", "Labridae", "Scorpaenidae", "Castoridae")) %>%
+  slice_max(genus_count_assembly, n = 1, with_ties = FALSE) %>%
+  select(library, location_layer, age, phylum_name, order_name, family_name, genus_name, genus_count_assembly, sum_genus_count, deam5p_frac_genus, median_read_length_genus)
+
+# ---------------- PLANTS -------------------
+mw_df_plant <- mw_2509_df_fm_gs_cl %>%
+  filter(kingdom_group == "plants") %>%
+  group_by(library) %>%
+  filter(!sum_genus_count < 100) %>%
+  ungroup()
+  
+n_plant_genera <- mw_df_plant %>%
+  summarise(
+    n_pl_genera = n_distinct(genus_name)
+  )
+
+n_plant_genera
+
+# ------------------ ANIMALS -------------------
+mw_df_animal <- mw_2509_df_fm_gs_cl %>%
+  filter(kingdom_group == "animals") %>%
+  group_by(library) %>%
+  filter(!sum_genus_count < 100) %>%
+  ungroup()
+
+n_animal_genera <- mw_df_animal %>%
+  summarise(
+    n_animal_genera = n_distinct(genus_name)
+  )
+n_animal_genera
+
+mw_bovidae <- mw_df_animal %>%
+  filter(family_name == "Bovidae") 
 ```
